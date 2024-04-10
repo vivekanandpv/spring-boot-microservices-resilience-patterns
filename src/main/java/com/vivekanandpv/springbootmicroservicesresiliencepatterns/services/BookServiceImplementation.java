@@ -1,6 +1,9 @@
 package com.vivekanandpv.springbootmicroservicesresiliencepatterns.services;
 
 import com.vivekanandpv.springbootmicroservicesresiliencepatterns.models.Book;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.github.resilience4j.core.functions.CheckedFunction;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
@@ -31,22 +34,28 @@ public class BookServiceImplementation implements BookService {
 
     @Override
     public Book getBook(String url) {
-        RetryConfig config = RetryConfig.custom()
-                .maxAttempts(5)
-                .waitDuration(Duration.of(5, ChronoUnit.SECONDS))
+
+
+        CircuitBreakerConfig config = CircuitBreakerConfig.custom()
+                .slidingWindow(10, 3, CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
+                .permittedNumberOfCallsInHalfOpenState(2)
+                .automaticTransitionFromOpenToHalfOpenEnabled(true)
+                .waitDurationInOpenState(Duration.of(15, ChronoUnit.SECONDS))
                 .build();
 
-        RetryRegistry registry = RetryRegistry.of(config);
+        CircuitBreakerRegistry registry = CircuitBreakerRegistry.of(config);
 
-        Retry retry = registry.retry("downstream");
+        CircuitBreaker circuitBreaker = registry.circuitBreaker("downstream");
 
-        Retry.EventPublisher eventPublisher = retry.getEventPublisher();
-        eventPublisher.onRetry(e -> logger.info(String.format("Operation failed, retrying: %s", e)));
-        eventPublisher.onError(e -> logger.info(String.format("Operation error: %s", e)));
-        eventPublisher.onSuccess(e -> logger.info(String.format("Operation succeeded: %s", e)));
+        CircuitBreaker.EventPublisher eventPublisher = circuitBreaker.getEventPublisher();
+        eventPublisher.onStateTransition(e -> logger.info(String.format("Circuit Breaker: state transition: %s", e)));
+        eventPublisher.onError(e -> logger.info(String.format("Circuit Breaker: operation error: %s", e)));
+        eventPublisher.onSuccess(e -> logger.info(String.format("Circuit Breaker: operation succeeded: %s", e)));
+        eventPublisher.onReset(e -> logger.info(String.format("Circuit Breaker: reset: %s", e)));
+        eventPublisher.onFailureRateExceeded(e -> logger.info(String.format("Circuit Breaker: failure rate exceeded: %s", e)));
 
 
-        Supplier<ResponseEntity<Book>> responseEntitySupplier = Retry.decorateSupplier(retry, this::getFromService);
+        Supplier<ResponseEntity<Book>> responseEntitySupplier = CircuitBreaker.decorateSupplier(circuitBreaker, this::getFromService);
 
 
         return responseEntitySupplier.get().getBody();
