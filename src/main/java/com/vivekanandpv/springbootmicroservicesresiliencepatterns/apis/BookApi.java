@@ -43,6 +43,6 @@ public class BookApi {
     }
 
     public ResponseEntity<Map<String, String>> getFallback(RuntimeException exception) {
-        return ResponseEntity.ok(Map.of("upstream-error", exception.getMessage()));
+        return ResponseEntity.status(503).body(Map.of("upstream-error", exception.getMessage()));
     }
 }
